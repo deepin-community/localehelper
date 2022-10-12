@@ -1,0 +1,143 @@
+=encoding UTF-8
+
+=head1 NAME
+
+localehelper - generate locales and set internationalization environment variables
+
+=head1 SYNOPSIS
+
+B<localehelper> [-x I<locale>[,I<locale>...]] [I<intvar>=I<locale>[,I<locale-fallback>...]]... [--] I<commandline>
+
+B<localehelper> {-h | --help}
+
+=head1 DESCRIPTION
+
+=over
+
+=item 1.
+Set each internationalization environment variable to I<locale> (possibly falling back to I<locale-fallback>).
+
+=item 2.
+Unset all other internationalization environment variables.
+
+=item 3.
+If needed, generate missing locales (in a temporary location).
+
+=item 4.
+Run the specified command.
+
+=back
+
+=head1 OPTIONS
+
+=over
+
+=item B<-x> I<locale>[,I<locale>...]
+
+Make sure these locales are available, even when they are not used in any
+internationalization environment variable.
+
+=item B<-h>, B<--help>
+
+Display help and exit.
+
+=back
+
+=head1 ENVIRONMENT
+
+The following environment variables can be set or unset by B<localehelper>:
+
+=over
+
+=item B<LANG>
+
+fall-back for B<LC_I<*>> variables
+
+=item B<LC_COLLATE>
+
+affects regular expression matching and string collation.
+
+=item B<LC_CTYPE>
+
+affects regular expression matching, character classification, conversion, case-sensitive comparison, and wide character functions
+
+=item B<LC_MESSAGES>
+
+affects natural-language messages
+
+=item B<LC_MONETARY>
+
+affects monetary formatting
+
+=item B<LC_NUMERIC>
+
+affects number formatting
+
+=item B<LC_TIME>
+
+affects time and date formatting
+
+=item other B<LC_I<*>>
+
+may affect other linguistic and cultural aspects
+
+=item B<LC_ALL>
+
+overrides all B<LC_I<*>>
+
+=item B<LANGUAGE>
+
+affects natural-language messages
+
+=back
+
+The following environment variables may be used by users to announce specific
+localization requirements to applications, but are left intact by
+B<localehelper>:
+
+=over
+
+=item B<NLSPATH>
+
+message catalogue path for L<catopen(3)>
+
+=item B<TEXTDOMAIN>
+
+message catalogue domain for L<gettext(1)>
+
+=item B<TEXTDOMAINDIR>
+
+message catalogue directory for L<gettext(1)>
+
+=back
+
+=head1 EXAMPLES
+
+ $ localehelper LANG=es_ES.UTF-8 locale mon | xargs -n1 -d ';'
+ enero
+ febrero
+ marzo
+ abril
+ mayo
+ junio
+ julio
+ agosto
+ septiembre
+ octubre
+ noviembre
+ diciembre
+
+=head1 SEE ALSO
+
+=over 2
+
+=item *
+L<locale(7)>
+
+=item *
+L<POSIX:2004|http://pubs.opengroup.org/onlinepubs/009695399/basedefs/xbd_chap08.html#tag_08_02>
+
+=item *
+L<GNU gettext manual|https://www.gnu.org/software/gettext/manual/html_node/Setting-the-POSIX-Locale.html>
+
+=back

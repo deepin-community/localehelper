@@ -1,0 +1,267 @@
+#!/usr/bin/env perl
+
+# Copyright © 2012-2015 Jakub Wilk <jwilk@jwilk.net>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the “Software”), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+=head1 SYNOPSIS
+
+B<localehelper> [-x I<locale>[,I<locale>...]] [I<intvar>=I<locale>[,I<locale-fallback>...]]... [--] I<commandline>
+
+=cut
+
+use strict;
+use warnings;
+
+use v5.10;
+no if $] >= 5.018, warnings => 'experimental::smartmatch';
+
+# cwd in @INC is harmful:
+# http://www.nntp.perl.org/group/perl.perl5.porters/2010/08/msg162729.html
+no lib '.';
+
+use English qw(-no_match_vars);
+use File::Temp qw();
+
+my $myself = 'localehelper';
+
+my $category_re = qr/(?:LC_[A-Z]+|LANG|LANGUAGE)/;
+my $locale_with_encoding_re = qr/^([^.@]+)[.]([^.@]+)((?:@.+)?)$/;
+
+sub clean_environment($)
+{
+    my ($regex) = @_;
+    my @keys_to_unset = grep { m/$regex/ } keys %ENV;
+    delete @ENV{@keys_to_unset};
+    return;
+}
+
+sub update_environment(%)
+{
+    my %env = @_;
+    @ENV{keys(%env)} = values(%env);
+    return;
+}
+
+sub normalize_encoding($)
+{
+    # https://sourceware.org/git/?p=glibc.git;a=blob;f=intl/l10nflist.c;h=3d8344be7b9cb65ac2a7764a47aac4af424dcca8;hb=eefa3be8e4c2c721a9f277d8ea2e11180231829f#l313
+    # https://www.gnu.org/software/libc/manual/html_node/Using-gettextized-software.html
+    local ($_) = @_;
+    s/[^a-zA-Z0-9]+//g;
+    if (m/^[0-9]+/) {
+        return "iso$_";
+    } else {
+        y/A-Z/a-z/;
+        return $_;
+    }
+}
+
+sub normalize_locale($)
+{
+    local ($_) = @_;
+    if (my ($prefix, $encoding, $suffix) = m/$locale_with_encoding_re/) {
+        $encoding = normalize_encoding($encoding);
+        return "$prefix.$encoding$suffix";
+    }
+    return $_;
+}
+
+sub get_all_locales()
+{
+    if (defined $ENV{LOCPATH}) {
+        my @lst;
+        push @lst, 'C';
+        push @lst, 'POSIX';
+        for (glob '/usr/lib/locale/*/') {
+            s{.*/(.*)/}{$1} or die;
+            push @lst, $1;
+        }
+        return @lst;
+    } else {
+        my $lst = qx(locale -a);
+        if ($CHILD_ERROR != 0) {
+            diag('warning: locale(1) failed');
+            $lst = '';
+        }
+        return split(/\n/, $lst);
+    }
+}
+
+sub get_encoding_map()
+{
+    my %encodings = ();
+    for (glob '/usr/share/i18n/charmaps/*') {
+        s{.*/}{};
+        s/[.]gz$//;
+        my $encoding = $_;
+        my $nencoding = normalize_encoding($_);
+        $encodings{$nencoding} = $encoding;
+    }
+    return \%encodings;
+}
+
+sub show_usage()
+{
+    open(my $fh, '<', $PROGRAM_NAME) or die "$PROGRAM_NAME: $ERRNO";
+    my $in_synopsis = 0;
+    while (<$fh>) {
+        chomp;
+        if (m/^=head1\s+SYNOPSIS$/) {
+            $in_synopsis = 1;
+        } elsif (m/^=/) {
+            last if $in_synopsis;
+        } elsif (m/^\S.*/) {
+            if ($in_synopsis) {
+                s/B<(.*?)>/$1/g;
+                s/I(<.*?>)/$1/g;
+                say {*STDERR} "Usage: $_" or die $ERRNO;
+                close($fh) or die "$PROGRAM_NAME: $ERRNO";
+                return;
+            }
+        }
+    }
+    die;  # uncoverable statement
+}
+
+sub diag(@)
+{
+    my (@message) = @_;
+    say {*STDERR} "$myself: ", @message;  ## no critic (CheckedSyscalls)
+    return;
+}
+
+my @extra_locales = ();
+my %env = ();
+while (scalar(@ARGV) > 0) {
+    given ($ARGV[0]) {
+        when (m/^($category_re)=(.*)$/) {
+            my ($category, $locale) = ($1, $2);
+            $env{$category} = $locale;
+            shift @ARGV;
+        }
+        when ('-x') {
+            shift @ARGV;
+            if (not @ARGV) {
+                diag('error: -x requires an argument');
+                exit 1;
+            }
+            push @extra_locales, split(m/,/, shift @ARGV);
+        }
+        when (['-h', '--help']) {
+            show_usage();
+            exit 0;
+        }
+        when ('--') {
+            shift @ARGV;
+            last;
+        }
+        default {
+            last;
+        }
+    }
+}
+
+if (not @ARGV) {
+    exit 0;
+}
+
+clean_environment(qr/^$category_re$/);
+
+delete $ENV{LOCPATH};
+
+my $locale_list = qx(locale -a);
+if ($CHILD_ERROR != 0) {
+    diag('warning: locale(1) failed');
+    $locale_list = '';
+}
+my %all_locales = map { $_ => 1 } get_all_locales();
+my $no_missing_locales = 1;
+my %locales_to_generate = ();
+while (my ($category, $locales) = each %env) {
+    next if $category eq 'LANGUAGE';
+    $locales_to_generate{$locales} = 1;
+    my @nlocales = map { normalize_locale($_) } split(m/,/, $locales);
+    $no_missing_locales &&= grep { exists $all_locales{$_} } @nlocales;
+}
+for my $locale (@extra_locales) {
+    $locales_to_generate{$locale} = 1;
+    my $nlocale = normalize_locale($locale);
+    $no_missing_locales &&= exists $all_locales{$nlocale};
+}
+
+my $missing_locales = not $no_missing_locales;
+if ($missing_locales) {
+    my %encodings = %{get_encoding_map()};
+    my $locpath = $ENV{LOCPATH} = File::Temp::tempdir("$myself.XXXXXXXX", CLEANUP => 1, TMPDIR => 1);
+    %all_locales = map { $_ => 1 } get_all_locales();
+    for my $locales (keys %locales_to_generate) {
+        my @locales = split(m/,/, $locales);
+        for my $locale (@locales) {
+            if (exists $all_locales{$locale}) {
+                last;
+            }
+            if (my ($prefix, $encoding, $suffix) = $locale =~ m/$locale_with_encoding_re/) {
+                my $nencoding = normalize_encoding($encoding);
+                my $nlocale = "$prefix.$nencoding$suffix";
+                if (exists $all_locales{$nlocale}) {
+                    last;
+                }
+                $encoding = $encodings{$nencoding} // $encoding;
+                system('localedef',  ## no critic (RequireCheckedSyscalls)
+                    '-f', $encoding,
+                    '-i', "$prefix$suffix",
+                    "$locpath/$nlocale/"
+                );
+                if ($CHILD_ERROR) {
+                    diag("warning: localedef for $locale failed");
+                    next
+                }
+                $all_locales{$nlocale} = 1;
+                last;
+            } else {
+                diag("warning: cannot generate locale $locale");
+            }
+        }
+    }
+}
+
+while (my ($category, $locales) = each %env) {
+    next if $category eq 'LANGUAGE';
+    my @locales = split(m/,/, $locales);
+    my @existing_locales = grep {
+        exists $all_locales{$_} or
+        exists $all_locales{normalize_locale($_)}
+    } @locales;
+    if (@existing_locales) {
+        $env{$category} = $existing_locales[0];
+    } else {
+        local $LIST_SEPARATOR = ', ';
+        diag("error: missing locales @locales");
+        exit 1;
+    }
+}
+
+update_environment(%env);
+
+system { $ARGV[0] } @ARGV;  ## no critic (RequireCheckedSyscalls)
+my $exit_code = ($CHILD_ERROR & 127) ? 1 : ($CHILD_ERROR >> 8);
+exit($exit_code);
+
+# vim:ts=4 sts=4 sw=4 et

@@ -1,0 +1,24 @@
+localehelper (0.1.4-3) unstable; urgency=medium
+
+  * Updated priority to optional due to extra being deprecated
+  * Updated debhelper compatibility to 10
+  * Relaxed dependency "locales" to "locales | locales-all" as "locales-all"
+    no longer provides "locales" (Closes: #839180)
+  * Updated d/copyright
+
+ -- Jonathan Ulrich Horn <debian@autoit4you.de>  Wed, 18 Oct 2017 22:55:23 +0200
+
+localehelper (0.1.4-2) unstable; urgency=medium
+
+  * Updated watch file as releases now happen on github (Closes: #825565)
+  * Updated standards version. No changes needed
+  * Changed priority to match override from FTP-Masters
+  * Update packaging repository URLs
+
+ -- Jonathan Ulrich Horn <debian@autoit4you.de>  Fri, 03 Jun 2016 00:26:29 +0200
+
+localehelper (0.1.4-1) unstable; urgency=low
+
+  * Initial release (Closes: #801064)
+
+ -- Jonathan Ulrich Horn <debian@autoit4you.de>  Mon, 19 Oct 2015 18:00:40 +0200

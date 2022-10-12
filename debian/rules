@@ -1,0 +1,17 @@
+#!/usr/bin/make -f
+%:
+	dh $@
+
+override_dh_auto_build:
+	$(MAKE) --directory=doc all
+	dh_auto_build
+
+override_dh_auto_clean:
+	$(MAKE) --directory=doc clean
+	dh_auto_clean
+
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+override_dh_auto_test:
+	prove --verbose
+	dh_auto_test
+endif
